@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Virtuozzo FinOps: Multi-Tier Margin Calculator</title>
+    <style>
+        :root {
+            --primary: #0052CC; /* Confluence Blue */
+            --danger: #DE350B;
+            --success: #00875A;
+            --background: #F4F5F7;
+            --border: #DFE1E6;
+            --text: #172B4D;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+        .calculator-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            max-width: 900px;
+        }
+        .input-section, .result-section {
+            flex: 1;
+            min-width: 300px;
+        }
+        h3 {
+            margin-top: 0;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 10px;
+            color: var(--text);
+        }
+        .control-group {
+            margin-bottom: 25px;
+        }
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .val-display {
+            color: var(--primary);
+            font-weight: bold;
+        }
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+        }
+        .metric-card {
+            background: var(--background);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid var(--primary);
+        }
+        .metric-card.alert {
+            border-left-color: var(--danger);
+            background: #FFEBE6;
+        }
+        .metric-card.healthy {
+            border-left-color: var(--success);
+            background: #E3FCEF;
+        }
+        .metric-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #5E6C84;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .metric-subtext {
+            font-size: 12px;
+            color: #5E6C84;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="calculator-container">
+    <div class="input-section">
+        <h3>Pricing & Consumption Variables</h3>
+        
+        <div class="control-group">
+            <label>
+                Tier 1 Base Compute Cost (Virtuozzo)
+                <span class="val-display" id="baseCostVal">$1000</span>
+            </label>
+            <input type="range" id="baseCost" min="500" max="5000" step="100" value="1000">
+            <div class="metric-subtext">The underlying wholesale infrastructure cost.</div>
+        </div>
+
+        <div class="control-group">
+            <label>
+                Tier 2 Distributor Markup
+                <span class="val-display" id="t2MarkupVal">20%</span>
+            </label>
+            <input type="range" id="t2Markup" min="5" max="50" step="1" value="20">
+        </div>
+
+        <div class="control-group">
+            <label>
+                Tier 3 MSP Retail Markup
+                <span class="val-display" id="t3MarkupVal">30%</span>
+            </label>
+            <input type="range" id="t3Markup" min="5" max="100" step="1" value="30">
+            <div class="metric-subtext">Assuming MSP charges the end-user a flat monthly rate based on this markup.</div>
+        </div>
+
+        <div class="control-group" style="padding-top: 15px; border-top: 1px dashed #DFE1E6;">
+            <label style="color: #DE350B;">
+                Unexpected AI Token Burn (Pass-through)
+                <span class="val-display" style="color: #DE350B;" id="aiBurnVal">$200</span>
+            </label>
+            <input type="range" id="aiBurn" min="0" max="2000" step="50" value="200">
+            <div class="metric-subtext">Extra cost incurred by the MSP due to unbounded End-User AI activity.</div>
+        </div>
+    </div>
+
+    <div class="result-section">
+        <h3>Multi-Tier Profitability Impact</h3>
+
+        <div class="metric-card">
+            <div class="metric-title">Tier 2 (Distributor) Wholesale Price</div>
+            <div class="metric-value" id="t2PriceOutput">$1,200</div>
+            <div class="metric-subtext">Profit: <span id="t2ProfitOutput">$200</span></div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-title">Tier 3 (MSP) Flat Retail Price</div>
+            <div class="metric-value" id="t3RetailOutput">$1,560</div>
+            <div class="metric-subtext">What the End-User pays. Expected Profit: <span id="t3ExpectedProfit">$360 (23%)</span></div>
+        </div>
+
+        <div class="metric-card healthy" id="marginCard">
+            <div class="metric-title">Actual Tier 3 (MSP) Margin</div>
+            <div class="metric-value" id="t3ActualMarginOutput">10.3%</div>
+            <div class="metric-subtext">Actual Profit: <span id="t3ActualProfitOutput">$160</span> (After paying for AI Token Burn)</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const formatCurrency = (num) => '$' + num.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+    const formatPercent = (num) => (num * 100).toFixed(1) + '%';
+
+    function calculate() {
+        // Get values
+        let baseCost = parseFloat(document.getElementById('baseCost').value);
+        let t2Markup = parseFloat(document.getElementById('t2Markup').value) / 100;
+        let t3Markup = parseFloat(document.getElementById('t3Markup').value) / 100;
+        let aiBurn = parseFloat(document.getElementById('aiBurn').value);
+
+        // Update labels
+        document.getElementById('baseCostVal').innerText = formatCurrency(baseCost);
+        document.getElementById('t2MarkupVal').innerText = (t2Markup * 100).toFixed(0) + '%';
+        document.getElementById('t3MarkupVal').innerText = (t3Markup * 100).toFixed(0) + '%';
+        document.getElementById('aiBurnVal').innerText = formatCurrency(aiBurn);
+
+        // Tier 2 Math
+        let t2Price = baseCost * (1 + t2Markup);
+        let t2Profit = t2Price - baseCost;
+
+        // Tier 3 Math (Flat Retail Price calculation)
+        let t3Retail = t2Price * (1 + t3Markup);
+        let t3ExpectedProfit = t3Retail - t2Price;
+        let expectedMargin = t3ExpectedProfit / t3Retail;
+
+        // Actual Tier 3 Math (absorbing the AI burn)
+        let t3ActualCost = t2Price + aiBurn;
+        let t3ActualProfit = t3Retail - t3ActualCost;
+        let t3ActualMargin = t3ActualProfit / t3Retail;
+
+        // Render Outputs
+        document.getElementById('t2PriceOutput').innerText = formatCurrency(t2Price);
+        document.getElementById('t2ProfitOutput').innerText = formatCurrency(t2Profit);
+        
+        document.getElementById('t3RetailOutput').innerText = formatCurrency(t3Retail);
+        document.getElementById('t3ExpectedProfit').innerText = formatCurrency(t3ExpectedProfit) + ' (' + formatPercent(expectedMargin) + ')';
+
+        document.getElementById('t3ActualProfitOutput').innerText = formatCurrency(t3ActualProfit);
+        document.getElementById('t3ActualMarginOutput').innerText = formatPercent(t3ActualMargin);
+
+        // UI Feedback based on margin health
+        let marginCard = document.getElementById('marginCard');
+        if (t3ActualProfit < 0) {
+            marginCard.className = 'metric-card alert';
+        } else if (t3ActualMargin < (expectedMargin * 0.5)) {
+            marginCard.className = 'metric-card alert';
+            marginCard.style.backgroundColor = '#FFF0B3'; // Warning Yellow
+            marginCard.style.borderLeftColor = '#FFAB00';
+        } else {
+            marginCard.className = 'metric-card healthy';
+        }
+    }
+
+    // Attach listeners
+    document.querySelectorAll('input[type=range]').forEach(input => {
+        input.addEventListener('input', calculate);
+    });
+
+    // Initial run
+    calculate();
+</script>
+
+</body>
+</html>
